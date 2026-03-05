@@ -1,15 +1,13 @@
 """
 Генерация Excel-файла со статистической обработкой выборки X (N=121..240).
+Структура строго по ТЗ с доски: 8 листов.
 Запуск: python generate_excel.py
 """
 
 import math
 from openpyxl import Workbook
-from openpyxl.styles import (
-    Font, Alignment, PatternFill, Border, Side, numbers
-)
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.chart import BarChart, LineChart, Reference
-from openpyxl.chart.series import DataPoint
 from openpyxl.utils import get_column_letter
 
 # ---------------------------------------------------------------------------
@@ -33,70 +31,87 @@ X_VALUES = [
 n = len(X_VALUES)  # 120
 
 # ---------------------------------------------------------------------------
-# Стилевые утилиты
+# Стилевые константы
 # ---------------------------------------------------------------------------
 
-HEADER_FILL = PatternFill("solid", fgColor="4472C4")
-SUBHEADER_FILL = PatternFill("solid", fgColor="BDD7EE")
-SUM_FILL = PatternFill("solid", fgColor="DDEBF7")
-LIGHT_FILL = PatternFill("solid", fgColor="EBF3FB")
+HEADER_FILL     = PatternFill("solid", fgColor="4472C4")
+SUBHEADER_FILL  = PatternFill("solid", fgColor="BDD7EE")
+SUM_FILL        = PatternFill("solid", fgColor="DDEBF7")
+LIGHT_FILL      = PatternFill("solid", fgColor="EBF3FB")
+RESULT_FILL     = PatternFill("solid", fgColor="FFF2CC")
 
-HEADER_FONT = Font(bold=True, color="FFFFFF", name="Calibri", size=11)
-SUBHEADER_FONT = Font(bold=True, name="Calibri", size=11)
-NORMAL_FONT = Font(name="Calibri", size=11)
-BOLD_FONT = Font(bold=True, name="Calibri", size=11)
+HEADER_FONT     = Font(bold=True, color="FFFFFF", name="Calibri", size=11)
+SUBHEADER_FONT  = Font(bold=True, name="Calibri", size=11)
+NORMAL_FONT     = Font(name="Calibri", size=11)
+BOLD_FONT       = Font(bold=True, name="Calibri", size=11)
 
-CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
-LEFT = Alignment(horizontal="left", vertical="center")
+CENTER  = Alignment(horizontal="center", vertical="center", wrap_text=True)
+LEFT    = Alignment(horizontal="left",   vertical="center")
+RIGHT   = Alignment(horizontal="right",  vertical="center")
 
-THIN = Side(border_style="thin", color="000000")
+THIN   = Side(border_style="thin",   color="000000")
 MEDIUM = Side(border_style="medium", color="000000")
 
-THIN_BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
-MEDIUM_BORDER = Border(left=MEDIUM, right=MEDIUM, top=MEDIUM, bottom=MEDIUM)
 
-
-def header_border():
-    return Border(left=MEDIUM, right=MEDIUM, top=MEDIUM, bottom=MEDIUM)
-
-
-def cell_border():
+def thin_border():
     return Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 
 
-def style_header(cell, text=None, fill=None):
+def medium_border():
+    return Border(left=MEDIUM, right=MEDIUM, top=MEDIUM, bottom=MEDIUM)
+
+
+def h(cell, text=None, fill=None):
+    """Стиль заголовка (тёмный фон, белый жирный шрифт)."""
     if text is not None:
         cell.value = text
     cell.font = HEADER_FONT
     cell.fill = fill or HEADER_FILL
     cell.alignment = CENTER
-    cell.border = cell_border()
+    cell.border = thin_border()
 
 
-def style_subheader(cell, text=None):
+def sh(cell, text=None):
+    """Стиль подзаголовка (светло-синий фон, жирный)."""
     if text is not None:
         cell.value = text
     cell.font = SUBHEADER_FONT
     cell.fill = SUBHEADER_FILL
     cell.alignment = CENTER
-    cell.border = cell_border()
+    cell.border = thin_border()
 
 
-def style_data(cell, value=None, align=CENTER):
+def d(cell, value=None, align=CENTER):
+    """Стиль данных."""
     if value is not None:
         cell.value = value
     cell.font = NORMAL_FONT
     cell.alignment = align
-    cell.border = cell_border()
+    cell.border = thin_border()
 
 
-def style_sum(cell, value=None):
+def s(cell, value=None):
+    """Стиль строки суммы."""
     if value is not None:
         cell.value = value
     cell.font = BOLD_FONT
     cell.fill = SUM_FILL
     cell.alignment = CENTER
-    cell.border = cell_border()
+    cell.border = thin_border()
+
+
+def lbl(cell, text, bold=False):
+    """Метка вне таблицы (без рамки)."""
+    cell.value = text
+    cell.font = BOLD_FONT if bold else NORMAL_FONT
+    cell.alignment = LEFT
+
+
+def val(cell, value, bold=False):
+    """Значение вне таблицы (без рамки)."""
+    cell.value = value
+    cell.font = BOLD_FONT if bold else NORMAL_FONT
+    cell.alignment = LEFT
 
 
 def set_col_width(ws, col, width):
@@ -107,704 +122,592 @@ def set_col_width(ws, col, width):
 # Статистические вычисления
 # ---------------------------------------------------------------------------
 
-x_sorted = sorted(X_VALUES)
-x_min = x_sorted[0]
-x_max = x_sorted[-1]
+sorted_x = sorted(X_VALUES)
+x_min = sorted_x[0]
+x_max = sorted_x[-1]
 R = x_max - x_min
+h_val = R / (1 + 3.32 * math.log10(n))
 
-# Шаг интервала
-h_raw = R / (1 + 3.32 * math.log10(n))
-h = math.ceil(h_raw)  # Округляем вверх до целого
-
-# Число интервалов
-k_intervals = math.ceil(R / h)
-
-# Статистический ряд (точечный)
-from collections import Counter
-
-freq_counter = Counter(X_VALUES)
-unique_vals = sorted(freq_counter.keys())
-freqs = [freq_counter[v] for v in unique_vals]
-rel_freqs = [f / n for f in freqs]
+# Статистический ряд
+unique_vals = sorted(set(sorted_x))
+freq = {x: sorted_x.count(x) for x in unique_vals}
+rel_freq = {x: freq[x] / n for x in unique_vals}
 
 # Интервальный ряд
+num_intervals = round(1 + 3.32 * math.log10(n))
+h_int = R / num_intervals
+
 intervals = []
-a = x_min
-for i in range(k_intervals):
-    b = a + h
-    # Для последнего интервала включаем правую границу
-    if i == k_intervals - 1:
-        cnt = sum(1 for x in X_VALUES if a <= x <= b)
-    else:
-        cnt = sum(1 for x in X_VALUES if a <= x < b)
+for i in range(num_intervals):
+    a = x_min + i * h_int
+    b = x_min + (i + 1) * h_int
     mid = (a + b) / 2
+    # count values in [a, b) or [a, b] for last
+    if i < num_intervals - 1:
+        cnt = sum(1 for xv in sorted_x if a <= xv < b)
+    else:
+        cnt = sum(1 for xv in sorted_x if a <= xv <= b)
     w = cnt / n
-    intervals.append({
-        "a": a, "b": b,
-        "mid": mid,
-        "k": cnt,
-        "w": w,
-        "density": w / h,
-    })
-    a = b
+    intervals.append({"a": a, "b": b, "mid": mid, "k": cnt, "w": w, "wh": w / h_int})
 
-# Мода (Mo) по интервальному ряду
-modal_idx = max(range(len(intervals)), key=lambda i: intervals[i]["k"])
-modal = intervals[modal_idx]
-if modal_idx > 0:
-    k_prev = intervals[modal_idx - 1]["k"]
-else:
-    k_prev = 0
-if modal_idx < len(intervals) - 1:
-    k_next = intervals[modal_idx + 1]["k"]
-else:
-    k_next = 0
-k_m = modal["k"]
-denom_mo = (k_m - k_prev) + (k_m - k_next)
-Mo = modal["a"] + h * (k_m - k_prev) / denom_mo if denom_mo != 0 else modal["mid"]
+# Мода по интервальному ряду (середина модального класса)
+modal = max(intervals, key=lambda iv: iv["k"])
+mo_idx = intervals.index(modal)
+k_mo = modal["k"]
+k_prev = intervals[mo_idx - 1]["k"] if mo_idx > 0 else 0
+k_next = intervals[mo_idx + 1]["k"] if mo_idx < len(intervals) - 1 else 0
+denom_mo = (k_mo - k_prev) + (k_mo - k_next)
+Mo = modal["a"] + h_int * (k_mo - k_prev) / denom_mo if denom_mo != 0 else modal["mid"]
 
-# Медиана (Me) по интервальному ряду
-half_n = n / 2
-cumsum = 0
+# Медиана по интервальному ряду
+half = n / 2
+cum = 0
 Me = None
 for iv in intervals:
-    if cumsum + iv["k"] >= half_n:
-        Me = iv["a"] + h * (half_n - cumsum) / iv["k"]
+    if cum + iv["k"] >= half:
+        Me = iv["a"] + h_int * (half - cum) / iv["k"]
         break
-    cumsum += iv["k"]
+    cum += iv["k"]
 
-# Начальные моменты
-alpha1 = sum(v * w for v, w in zip(unique_vals, rel_freqs))
-alpha2 = sum(v**2 * w for v, w in zip(unique_vals, rel_freqs))
-alpha3 = sum(v**3 * w for v, w in zip(unique_vals, rel_freqs))
-alpha4 = sum(v**4 * w for v, w in zip(unique_vals, rel_freqs))
+# Начальные моменты (по точечному ряду xi, wi)
+alpha1 = sum(x * rel_freq[x] for x in unique_vals)
+alpha2 = sum(x**2 * rel_freq[x] for x in unique_vals)
+alpha3 = sum(x**3 * rel_freq[x] for x in unique_vals)
+alpha4 = sum(x**4 * rel_freq[x] for x in unique_vals)
 
 # Характеристики выборки
-x_mean = alpha1
-D_v = alpha2 - alpha1**2
-sigma_v = math.sqrt(D_v)
+x_mean = alpha1                                           # x̄в = α₁
+D_v    = alpha2 - alpha1**2                              # Dв = α₂ - α₁²
+sigma_v = math.sqrt(D_v)                                 # σв = √Dв
+beta3  = alpha3 - 3*alpha1*alpha2 + 2*alpha1**3          # β₃
+beta4  = alpha4 - 4*alpha1*alpha3 + 6*alpha1**2*alpha2 - 3*alpha1**4  # β₄
+A_val  = beta3 / sigma_v**3                              # Асимметрия
+E_val  = beta4 / sigma_v**4 - 3                          # Эксцесс
 
-beta2 = D_v
-beta3 = alpha3 - 3 * alpha1 * alpha2 + 2 * alpha1**3
-beta4 = alpha4 - 4 * alpha1 * alpha3 + 6 * alpha1**2 * alpha2 - 3 * alpha1**4
+# Точечные оценки
+S2 = (n / (n - 1)) * D_v       # S² = n/(n-1)·Dв
+S  = math.sqrt(S2)              # S  = √S²
 
-A = beta3 / sigma_v**3
-E = beta4 / sigma_v**4 - 3
-
-# Точечные оценки (метод статистических оценок)
-S2 = (n / (n - 1)) * D_v  # исправленная дисперсия
-S = math.sqrt(S2)
-
-# Интервальные оценки (γ=0.95)
+# Интервальные оценки (γ = 0.95)
 gamma = 0.95
-# t = квантиль нормального распределения для двустороннего интервала при γ=0.95 (z₀.₉₇₅ = 1.96)
-t = 1.96
-# q = коэффициент для дов. интервала σ при n=120 и γ=0.95 (из таблицы: q ≈ 0.143)
-q = 0.143
+t_val = 1.96
+q_val = 0.143
+Delta = t_val * S / math.sqrt(n)
+x_low  = x_mean - Delta
+x_high = x_mean + Delta
+s_low  = S * (1 - q_val)
+s_high = S * (1 + q_val)
 
-delta = t * S / math.sqrt(n)
-mean_low = x_mean - delta
-mean_high = x_mean + delta
-
-sigma_low = S * (1 - q)
-sigma_high = S * (1 + q)
-
-# Эмпирическая функция распределения
-cdf_vals = []
-cumsum = 0
-for v in unique_vals:
-    cumsum += freq_counter[v]
-    cdf_vals.append(cumsum / n)
+# Накопленные частоты F*(x) для точечного ряда
+cum_w = 0.0
+F_vals = []
+for x in unique_vals:
+    cum_w += rel_freq[x]
+    F_vals.append(cum_w)
 
 # ---------------------------------------------------------------------------
 # Создание книги
 # ---------------------------------------------------------------------------
 
 wb = Workbook()
+wb.remove(wb.active)  # удалить лист по умолчанию
 
-# ---------------------------------------------------------------------------
-# Лист 1: Исходные данные
-# ---------------------------------------------------------------------------
 
-ws1 = wb.active
-ws1.title = "Исходные данные"
+# ===========================================================================
+# Лист 1: Выборка X
+# ===========================================================================
 
-ws1.merge_cells("A1:B1")
-c = ws1["A1"]
-c.value = "Исходные данные выборки X"
-c.font = Font(bold=True, size=14, name="Calibri")
-c.alignment = CENTER
+ws1 = wb.create_sheet("1. Выборка X")
+ws1.freeze_panes = "A2"
 
-style_header(ws1["A2"], "N")
-style_header(ws1["B2"], "X")
-set_col_width(ws1, 1, 8)
-set_col_width(ws1, 2, 10)
-ws1.row_dimensions[2].height = 20
+set_col_width(ws1, 1, 12)
+set_col_width(ws1, 2, 12)
 
-for i, x in enumerate(X_VALUES):
-    row = i + 3
-    style_data(ws1.cell(row, 1), N_START + i)
-    style_data(ws1.cell(row, 2), x)
-    if i % 2 == 0:
-        ws1.cell(row, 1).fill = LIGHT_FILL
-        ws1.cell(row, 2).fill = LIGHT_FILL
+h(ws1["A1"], "N")
+h(ws1["B1"], "X")
 
-# ---------------------------------------------------------------------------
+for i, xv in enumerate(X_VALUES):
+    row = i + 2
+    d(ws1.cell(row, 1), N_START + i)
+    d(ws1.cell(row, 2), xv)
+
+
+# ===========================================================================
 # Лист 2: Вариационный ряд
-# ---------------------------------------------------------------------------
+# ===========================================================================
 
-ws2 = wb.create_sheet("Вариационный ряд")
+ws2 = wb.create_sheet("2. Вариационный ряд")
+ws2.freeze_panes = "A2"
 
-ws2.merge_cells("A1:B1")
-c = ws2["A1"]
-c.value = "Вариационный ряд (X, отсортированный по возрастанию)"
-c.font = Font(bold=True, size=14, name="Calibri")
-c.alignment = CENTER
+set_col_width(ws2, 1, 12)
+set_col_width(ws2, 2, 12)
 
-style_header(ws2["A2"], "№")
-style_header(ws2["B2"], "X (вар. ряд)")
-set_col_width(ws2, 1, 8)
-set_col_width(ws2, 2, 14)
+h(ws2["A1"], "№")
+h(ws2["B1"], "X (вариационный ряд)")
 
-for i, x in enumerate(x_sorted):
-    row = i + 3
-    style_data(ws2.cell(row, 1), i + 1)
-    style_data(ws2.cell(row, 2), x)
-    if i % 2 == 0:
-        ws2.cell(row, 1).fill = LIGHT_FILL
-        ws2.cell(row, 2).fill = LIGHT_FILL
+for i, xv in enumerate(sorted_x):
+    row = i + 2
+    d(ws2.cell(row, 1), i + 1)
+    d(ws2.cell(row, 2), xv)
 
-# ---------------------------------------------------------------------------
-# Лист 3: Статистический ряд (Таблица 1)
-# ---------------------------------------------------------------------------
 
-ws3 = wb.create_sheet("Стат. ряд")
+# ===========================================================================
+# Лист Табл.1: Статистический ряд
+# ===========================================================================
 
-ws3.merge_cells("A1:D1")
-c = ws3["A1"]
-c.value = "Таблица 1. Статистический (точечный) ряд"
-c.font = Font(bold=True, size=14, name="Calibri")
-c.alignment = CENTER
-
-headers3 = ["xᵢ", "kᵢ (частота)", "wᵢ = kᵢ/n", "Накопл. частота"]
-for col, h_text in enumerate(headers3, 1):
-    style_header(ws3.cell(2, col), h_text)
-    set_col_width(ws3, col, 16)
-
-cum_k = 0
-for i, (v, f, w) in enumerate(zip(unique_vals, freqs, rel_freqs)):
-    row = i + 3
-    cum_k += f
-    style_data(ws3.cell(row, 1), v)
-    style_data(ws3.cell(row, 2), f)
-    style_data(ws3.cell(row, 3), round(w, 6))
-    style_data(ws3.cell(row, 4), cum_k)
-    if i % 2 == 0:
-        for col in range(1, 5):
-            ws3.cell(row, col).fill = LIGHT_FILL
-
-sum_row = len(unique_vals) + 3
-style_sum(ws3.cell(sum_row, 1), "Σ")
-style_sum(ws3.cell(sum_row, 2), n)
-style_sum(ws3.cell(sum_row, 3), round(sum(rel_freqs), 6))
-style_sum(ws3.cell(sum_row, 4), "")
-
-# Дополнительные параметры
-info_row = sum_row + 2
-ws3.cell(info_row, 1).value = "n ="
-ws3.cell(info_row, 1).font = BOLD_FONT
-ws3.cell(info_row, 2).value = n
-ws3.cell(info_row, 2).font = NORMAL_FONT
-
-ws3.cell(info_row + 1, 1).value = "Xmin ="
-ws3.cell(info_row + 1, 1).font = BOLD_FONT
-ws3.cell(info_row + 1, 2).value = x_min
-
-ws3.cell(info_row + 2, 1).value = "Xmax ="
-ws3.cell(info_row + 2, 1).font = BOLD_FONT
-ws3.cell(info_row + 2, 2).value = x_max
-
-ws3.cell(info_row + 3, 1).value = "R = Xmax - Xmin ="
-ws3.cell(info_row + 3, 1).font = BOLD_FONT
-ws3.cell(info_row + 3, 2).value = R
-
-ws3.cell(info_row + 4, 1).value = "h (точн.) = R / (1 + 3.32·lg(n)) ="
-ws3.cell(info_row + 4, 1).font = BOLD_FONT
-ws3.cell(info_row + 4, 2).value = round(h_raw, 4)
-
-ws3.cell(info_row + 5, 1).value = "h (округл.) ="
-ws3.cell(info_row + 5, 1).font = BOLD_FONT
-ws3.cell(info_row + 5, 2).value = h
-
-# ---------------------------------------------------------------------------
-# Лист 4: Интервальный ряд (Таблица 2)
-# ---------------------------------------------------------------------------
-
-ws4 = wb.create_sheet("Интервальный ряд")
-
-ws4.merge_cells("A1:G1")
-c = ws4["A1"]
-c.value = "Таблица 2. Интервальный ряд"
-c.font = Font(bold=True, size=14, name="Calibri")
-c.alignment = CENTER
-
-headers4 = ["Интервал", "aᵢ (нижн.)", "bᵢ (верхн.)", "Середина xᵢ*", "kᵢ", "wᵢ = kᵢ/n", "wᵢ/h (плотность)"]
-widths4 = [18, 12, 12, 14, 8, 14, 18]
-for col, (h_text, w) in enumerate(zip(headers4, widths4), 1):
-    style_header(ws4.cell(2, col), h_text)
-    set_col_width(ws4, col, w)
-
-cum_k4 = 0
-for i, iv in enumerate(intervals):
-    row = i + 3
-    cum_k4 += iv["k"]
-    ws4.cell(row, 1).value = f"[{iv['a']}; {iv['b']})"
-    style_data(ws4.cell(row, 1))
-    style_data(ws4.cell(row, 2), iv["a"])
-    style_data(ws4.cell(row, 3), iv["b"])
-    style_data(ws4.cell(row, 4), iv["mid"])
-    style_data(ws4.cell(row, 5), iv["k"])
-    style_data(ws4.cell(row, 6), round(iv["w"], 6))
-    style_data(ws4.cell(row, 7), round(iv["density"], 6))
-    if i % 2 == 0:
-        for col in range(1, 8):
-            ws4.cell(row, col).fill = LIGHT_FILL
-
-sum_row4 = len(intervals) + 3
-style_sum(ws4.cell(sum_row4, 1), "Σ")
-style_sum(ws4.cell(sum_row4, 2), "")
-style_sum(ws4.cell(sum_row4, 3), "")
-style_sum(ws4.cell(sum_row4, 4), "")
-style_sum(ws4.cell(sum_row4, 5), n)
-style_sum(ws4.cell(sum_row4, 6), round(sum(iv["w"] for iv in intervals), 6))
-style_sum(ws4.cell(sum_row4, 7), "")
-
-info4_row = sum_row4 + 2
-ws4.cell(info4_row, 1).value = "Мода (Mo) ="
-ws4.cell(info4_row, 1).font = BOLD_FONT
-ws4.cell(info4_row, 2).value = round(Mo, 4)
-ws4.cell(info4_row, 2).font = BOLD_FONT
-
-ws4.cell(info4_row + 1, 1).value = "Медиана (Me) ="
-ws4.cell(info4_row + 1, 1).font = BOLD_FONT
-ws4.cell(info4_row + 1, 2).value = round(Me, 4)
-ws4.cell(info4_row + 1, 2).font = BOLD_FONT
-
-# ---------------------------------------------------------------------------
-# Лист 5: Полигон и F*(x) (Таблица 3 + графики)
-# ---------------------------------------------------------------------------
-
-ws5 = wb.create_sheet("Полигон и F(x)")
+ws_t1 = wb.create_sheet("Табл.1 - Стат. ряд")
 
 # Заголовок
-ws5.merge_cells("A1:F1")
-c = ws5["A1"]
-c.value = "Таблица 3. Полигон частот и Эмпирическая функция распределения F*(x)"
-c.font = Font(bold=True, size=14, name="Calibri")
-c.alignment = CENTER
+ws_t1.merge_cells("A1:C1")
+cell = ws_t1["A1"]
+cell.value = "Табл.1. Статистический ряд"
+cell.font = Font(bold=True, name="Calibri", size=13)
+cell.alignment = CENTER
+cell.fill = HEADER_FILL
+cell.font = HEADER_FONT
 
-# Таблица полигона (по точечному ряду)
-ws5.merge_cells("A2:C2")
-c = ws5["A2"]
-c.value = "Полигон частот (по точечному ряду)"
-c.font = BOLD_FONT
-c.alignment = CENTER
-c.fill = SUBHEADER_FILL
+# Шапка таблицы
+h(ws_t1["A2"], "xᵢ")
+h(ws_t1["B2"], "kᵢ")
+h(ws_t1["C2"], "wᵢ = kᵢ/n")
 
-headers5a = ["xᵢ", "kᵢ", "wᵢ"]
-for col, h_text in enumerate(headers5a, 1):
-    style_header(ws5.cell(3, col), h_text)
-    set_col_width(ws5, col, 12)
+set_col_width(ws_t1, 1, 14)
+set_col_width(ws_t1, 2, 10)
+set_col_width(ws_t1, 3, 16)
 
-for i, (v, f, w) in enumerate(zip(unique_vals, freqs, rel_freqs)):
-    row = i + 4
-    style_data(ws5.cell(row, 1), v)
-    style_data(ws5.cell(row, 2), f)
-    style_data(ws5.cell(row, 3), round(w, 6))
-    if i % 2 == 0:
-        for col in range(1, 4):
-            ws5.cell(row, col).fill = LIGHT_FILL
+# Данные
+row = 3
+for x in unique_vals:
+    d(ws_t1.cell(row, 1), x)
+    d(ws_t1.cell(row, 2), freq[x])
+    d(ws_t1.cell(row, 3), round(rel_freq[x], 6))
+    row += 1
 
-# Таблица F*(x)
-ws5.merge_cells("E2:G2")
-c = ws5["E2"]
-c.value = "Эмпирическая функция F*(x)"
-c.font = BOLD_FONT
-c.alignment = CENTER
-c.fill = SUBHEADER_FILL
+# Строка суммы
+s(ws_t1.cell(row, 1), "Σ")
+s(ws_t1.cell(row, 2), n)
+s(ws_t1.cell(row, 3), 1)
 
-headers5b = ["xᵢ", "F*(x) = Σwⱼ (j≤i)", "Накопл. k"]
-for col, h_text in enumerate(headers5b, 5):
-    style_header(ws5.cell(3, col), h_text)
-    set_col_width(ws5, col, 20)
+# Параметры ниже таблицы
+info_row = row + 2
+lbl(ws_t1.cell(info_row,     1), f"n = {n}", bold=True)
+lbl(ws_t1.cell(info_row + 1, 1), f"Xmin = {x_min}", bold=True)
+lbl(ws_t1.cell(info_row + 2, 1), f"Xmax = {x_max}", bold=True)
+lbl(ws_t1.cell(info_row + 3, 1), f"R = Xmax − Xmin = {x_max} − {x_min} = {R}", bold=True)
+lbl(ws_t1.cell(info_row + 4, 1),
+    f"h = R / (1 + 3.32·lg n) = {R} / (1 + 3.32·lg {n}) ≈ {h_val:.4f}  →  h (интервал) = {h_int:.4f}", bold=True)
+lbl(ws_t1.cell(info_row + 5, 1),
+    f"Число интервалов: {num_intervals}", bold=True)
 
-cum_f = 0
-for i, (v, f, w, cdf) in enumerate(zip(unique_vals, freqs, rel_freqs, cdf_vals)):
-    row = i + 4
-    style_data(ws5.cell(row, 5), v)
-    style_data(ws5.cell(row, 6), round(cdf, 6))
-    style_data(ws5.cell(row, 7), int(cdf * n))
-    if i % 2 == 0:
-        for col in range(5, 8):
-            ws5.cell(row, col).fill = LIGHT_FILL
 
-data_rows = len(unique_vals)
+# ===========================================================================
+# Лист Табл.2: Интервальный ряд + гистограмма
+# ===========================================================================
+
+ws_t2 = wb.create_sheet("Табл.2 - Интервальный ряд")
+
+# Заголовок
+ws_t2.merge_cells("A1:E1")
+cell = ws_t2["A1"]
+cell.value = "Табл.2. Интервальный ряд"
+cell.font = HEADER_FONT
+cell.alignment = CENTER
+cell.fill = HEADER_FILL
+
+# Шапка
+h(ws_t2["A2"], "Интервал [a; b)")
+h(ws_t2["B2"], "Середина xᵢ*")
+h(ws_t2["C2"], "kᵢ")
+h(ws_t2["D2"], "wᵢ")
+h(ws_t2["E2"], "wᵢ/h")
+
+set_col_width(ws_t2, 1, 20)
+set_col_width(ws_t2, 2, 16)
+set_col_width(ws_t2, 3, 10)
+set_col_width(ws_t2, 4, 10)
+set_col_width(ws_t2, 5, 14)
+
+# Данные
+row = 3
+for iv in intervals:
+    d(ws_t2.cell(row, 1), f"[{iv['a']:.2f}; {iv['b']:.2f})")
+    d(ws_t2.cell(row, 2), round(iv["mid"], 4))
+    d(ws_t2.cell(row, 3), iv["k"])
+    d(ws_t2.cell(row, 4), round(iv["w"], 6))
+    d(ws_t2.cell(row, 5), round(iv["wh"], 6))
+    row += 1
+
+# Строка суммы
+s(ws_t2.cell(row, 1), "Σ")
+s(ws_t2.cell(row, 2), "—")
+s(ws_t2.cell(row, 3), n)
+s(ws_t2.cell(row, 4), 1)
+s(ws_t2.cell(row, 5), "—")
+
+# Мода и медиана
+info_row = row + 2
+ws_t2.cell(info_row, 1).value = "Мода:"
+ws_t2.cell(info_row, 1).font = BOLD_FONT
+ws_t2.cell(info_row, 2).value = round(Mo, 4)
+ws_t2.cell(info_row, 2).font = NORMAL_FONT
+
+ws_t2.cell(info_row + 1, 1).value = "Медиана:"
+ws_t2.cell(info_row + 1, 1).font = BOLD_FONT
+ws_t2.cell(info_row + 1, 2).value = round(Me, 4)
+ws_t2.cell(info_row + 1, 2).font = NORMAL_FONT
+
+# --- Гистограмма ---
+chart_start_row = info_row + 4
+
+# Ссылки на данные: середины (B3:B{row-1}), wᵢ/h (E3:E{row-1})
+data_row_start = 3
+data_row_end   = row - 1   # последняя строка данных (без строки суммы)
+
+bar = BarChart()
+bar.type   = "col"
+bar.style  = 10
+bar.title  = "Гистограмма"
+bar.y_axis.title = "wᵢ/h (плотность)"
+bar.x_axis.title = "xᵢ*"
+bar.grouping = "clustered"
+
+# Данные (wᵢ/h)
+data_ref = Reference(ws_t2, min_col=5, min_row=2, max_row=data_row_end)
+bar.add_data(data_ref, titles_from_data=True)
+
+# Категории (середины)
+cats_ref = Reference(ws_t2, min_col=2, min_row=data_row_start, max_row=data_row_end)
+bar.set_categories(cats_ref)
+
+# Цвет и нулевые промежутки (настоящая гистограмма)
+bar.series[0].graphicalProperties.solidFill = "4472C4"
+bar.gapWidth = 0
+
+bar.width  = 20
+bar.height = 14
+
+anchor = f"A{chart_start_row}"
+ws_t2.add_chart(bar, anchor)
+
+
+# ===========================================================================
+# Лист Табл.3: Полигон и F*(x)
+# ===========================================================================
+
+ws_t3 = wb.create_sheet("Табл.3 - Полигон и F(x)")
+
+# --- Таблица полигона ---
+ws_t3.merge_cells("A1:B1")
+cell = ws_t3["A1"]
+cell.value = "Табл.3а. Точечный ряд (полигон)"
+cell.font = HEADER_FONT
+cell.alignment = CENTER
+cell.fill = HEADER_FILL
+
+h(ws_t3["A2"], "xᵢ")
+h(ws_t3["B2"], "wᵢ")
+
+set_col_width(ws_t3, 1, 14)
+set_col_width(ws_t3, 2, 14)
+set_col_width(ws_t3, 4, 14)
+set_col_width(ws_t3, 5, 14)
+
+poly_start = 3
+for i, x in enumerate(unique_vals):
+    row = poly_start + i
+    d(ws_t3.cell(row, 1), x)
+    d(ws_t3.cell(row, 2), round(rel_freq[x], 6))
+
+poly_end = poly_start + len(unique_vals) - 1
+
+# --- Таблица F*(x) (справа, col 4-5) ---
+ws_t3.merge_cells("D1:E1")
+cell = ws_t3["D1"]
+cell.value = "Табл.3б. F*(x)"
+cell.font = HEADER_FONT
+cell.alignment = CENTER
+cell.fill = HEADER_FILL
+
+h(ws_t3["D2"], "xᵢ")
+h(ws_t3["E2"], "F*(xᵢ)")
+
+for i, x in enumerate(unique_vals):
+    row = poly_start + i
+    d(ws_t3.cell(row, 4), x)
+    d(ws_t3.cell(row, 5), round(F_vals[i], 6))
 
 # --- Полигон частот (LineChart) ---
-chart_poly = LineChart()
-chart_poly.title = "Полигон частот"
-chart_poly.style = 10
-chart_poly.y_axis.title = "wᵢ (относит. частота)"
-chart_poly.x_axis.title = "xᵢ"
-chart_poly.width = 18
-chart_poly.height = 12
+chart_row = poly_end + 4
 
-data_poly = Reference(ws5, min_col=3, min_row=3, max_row=3 + data_rows)
-cats_poly = Reference(ws5, min_col=1, min_row=4, max_row=3 + data_rows)
-chart_poly.add_data(data_poly, titles_from_data=True)
-chart_poly.set_categories(cats_poly)
-chart_poly.series[0].graphicalProperties.line.solidFill = "2E75B6"
-chart_poly.series[0].marker.symbol = "circle"
-chart_poly.series[0].marker.size = 5
-ws5.add_chart(chart_poly, "A" + str(data_rows + 6))
+line_poly = LineChart()
+line_poly.style  = 10
+line_poly.title  = "Полигон частот"
+line_poly.y_axis.title = "wᵢ"
+line_poly.x_axis.title = "xᵢ"
 
-# --- Эмпирическая функция F*(x) (LineChart ступенчатый) ---
-chart_cdf = LineChart()
-chart_cdf.title = "Эмпирическая функция распределения F*(x)"
-chart_cdf.style = 10
-chart_cdf.y_axis.title = "F*(x)"
-chart_cdf.x_axis.title = "x"
-chart_cdf.width = 18
-chart_cdf.height = 12
+y_ref = Reference(ws_t3, min_col=2, min_row=2, max_row=poly_end)
+line_poly.add_data(y_ref, titles_from_data=True)
 
-data_cdf = Reference(ws5, min_col=6, min_row=3, max_row=3 + data_rows)
-cats_cdf = Reference(ws5, min_col=5, min_row=4, max_row=3 + data_rows)
-chart_cdf.add_data(data_cdf, titles_from_data=True)
-chart_cdf.set_categories(cats_cdf)
-chart_cdf.series[0].graphicalProperties.line.solidFill = "ED7D31"
-ws5.add_chart(chart_cdf, "J" + str(data_rows + 6))
+x_ref = Reference(ws_t3, min_col=1, min_row=poly_start, max_row=poly_end)
+line_poly.set_categories(x_ref)
 
-# --- Гистограмма (BarChart) по интервальному ряду ---
-# Вставим данные для гистограммы под таблицей интервального ряда
+ser = line_poly.series[0]
+ser.graphicalProperties.line.solidFill = "2E75B6"
+ser.graphicalProperties.line.width = 20000  # ~1.5 pt
+ser.marker.symbol  = "circle"
+ser.marker.size    = 6
+ser.marker.graphicalProperties.solidFill   = "2E75B6"
+ser.marker.graphicalProperties.line.solidFill = "2E75B6"
 
-hist_start_row = data_rows + 6
-ws5.merge_cells(f"A{hist_start_row - 2}:D{hist_start_row - 2}")
-c = ws5.cell(hist_start_row - 2, 1)
-c.value = "Данные для гистограммы (интервальный ряд)"
-c.font = BOLD_FONT
-c.alignment = CENTER
-c.fill = SUBHEADER_FILL
+line_poly.x_axis.delete = False
+line_poly.y_axis.delete = False
 
-hist_header_row = hist_start_row - 1
-style_header(ws5.cell(hist_header_row, 9), "Интервал (середина)")
-style_header(ws5.cell(hist_header_row, 10), "wᵢ/h (плотность)")
-set_col_width(ws5, 9, 22)
-set_col_width(ws5, 10, 18)
+line_poly.width  = 20
+line_poly.height = 14
 
-for i, iv in enumerate(intervals):
-    row = hist_header_row + 1 + i
-    style_data(ws5.cell(row, 9), iv["mid"])
-    style_data(ws5.cell(row, 10), round(iv["density"], 6))
+ws_t3.add_chart(line_poly, f"A{chart_row}")
 
-chart_hist = BarChart()
-chart_hist.type = "col"
-chart_hist.title = "Гистограмма (плотность частоты)"
-chart_hist.style = 10
-chart_hist.y_axis.title = "wᵢ/h"
-chart_hist.x_axis.title = "Середина интервала"
-chart_hist.width = 18
-chart_hist.height = 12
+# --- График F*(x) ---
+fx_chart_row = chart_row + 30
 
-hist_data_rows = len(intervals)
-data_hist = Reference(ws5, min_col=10, min_row=hist_header_row, max_row=hist_header_row + hist_data_rows)
-cats_hist = Reference(ws5, min_col=9, min_row=hist_header_row + 1, max_row=hist_header_row + hist_data_rows)
-chart_hist.add_data(data_hist, titles_from_data=True)
-chart_hist.set_categories(cats_hist)
-chart_hist.series[0].graphicalProperties.solidFill = "2E75B6"
-ws5.add_chart(chart_hist, "S" + str(data_rows + 6))
+line_fx = LineChart()
+line_fx.style  = 10
+line_fx.title  = "Эмпирическая функция распределения F*(x)"
+line_fx.y_axis.title = "F*(x)"
+line_fx.x_axis.title = "xᵢ"
 
-# ---------------------------------------------------------------------------
-# Лист 6: Начальные моменты (Таблица 4)
-# ---------------------------------------------------------------------------
+y_ref2 = Reference(ws_t3, min_col=5, min_row=2, max_row=poly_end)
+line_fx.add_data(y_ref2, titles_from_data=True)
 
-ws6 = wb.create_sheet("Начальные моменты")
+x_ref2 = Reference(ws_t3, min_col=4, min_row=poly_start, max_row=poly_end)
+line_fx.set_categories(x_ref2)
 
-ws6.merge_cells("A1:G1")
-c = ws6["A1"]
-c.value = "Таблица 4. Начальные моменты"
-c.font = Font(bold=True, size=14, name="Calibri")
-c.alignment = CENTER
+ser2 = line_fx.series[0]
+ser2.graphicalProperties.line.solidFill = "ED7D31"
+ser2.graphicalProperties.line.width = 20000
 
-headers6 = ["xᵢ", "kᵢ", "wᵢ = kᵢ/n", "xᵢ·wᵢ", "xᵢ²·wᵢ", "xᵢ³·wᵢ", "xᵢ⁴·wᵢ"]
-widths6 = [10, 8, 14, 16, 16, 20, 22]
-for col, (h_text, w) in enumerate(zip(headers6, widths6), 1):
-    style_header(ws6.cell(2, col), h_text)
-    set_col_width(ws6, col, w)
+line_fx.y_axis.scaling.min = 0
+line_fx.y_axis.scaling.max = 1
 
-sum_xw = sum_x2w = sum_x3w = sum_x4w = sum_w = 0
-for i, (v, f, w) in enumerate(zip(unique_vals, freqs, rel_freqs)):
-    row = i + 3
-    xw = v * w
-    x2w = v**2 * w
-    x3w = v**3 * w
-    x4w = v**4 * w
-    sum_xw += xw
-    sum_x2w += x2w
-    sum_x3w += x3w
-    sum_x4w += x4w
-    sum_w += w
-    style_data(ws6.cell(row, 1), v)
-    style_data(ws6.cell(row, 2), f)
-    style_data(ws6.cell(row, 3), round(w, 6))
-    style_data(ws6.cell(row, 4), round(xw, 6))
-    style_data(ws6.cell(row, 5), round(x2w, 6))
-    style_data(ws6.cell(row, 6), round(x3w, 4))
-    style_data(ws6.cell(row, 7), round(x4w, 2))
-    if i % 2 == 0:
-        for col in range(1, 8):
-            ws6.cell(row, col).fill = LIGHT_FILL
+line_fx.x_axis.delete = False
+line_fx.y_axis.delete = False
 
-sum_row6 = len(unique_vals) + 3
-style_sum(ws6.cell(sum_row6, 1), "Σ")
-style_sum(ws6.cell(sum_row6, 2), n)
-style_sum(ws6.cell(sum_row6, 3), round(sum_w, 6))
-style_sum(ws6.cell(sum_row6, 4), round(sum_xw, 6))
-style_sum(ws6.cell(sum_row6, 5), round(sum_x2w, 6))
-style_sum(ws6.cell(sum_row6, 6), round(sum_x3w, 4))
-style_sum(ws6.cell(sum_row6, 7), round(sum_x4w, 2))
+line_fx.width  = 20
+line_fx.height = 14
 
-info6 = sum_row6 + 2
-ws6.cell(info6, 1).value = "α₁ = Σ(xᵢ·wᵢ) ="
-ws6.cell(info6, 1).font = BOLD_FONT
-ws6.cell(info6, 2).value = round(alpha1, 6)
-ws6.cell(info6, 2).font = NORMAL_FONT
+ws_t3.add_chart(line_fx, f"A{fx_chart_row}")
 
-ws6.cell(info6 + 1, 1).value = "α₂ = Σ(xᵢ²·wᵢ) ="
-ws6.cell(info6 + 1, 1).font = BOLD_FONT
-ws6.cell(info6 + 1, 2).value = round(alpha2, 6)
 
-ws6.cell(info6 + 2, 1).value = "α₃ = Σ(xᵢ³·wᵢ) ="
-ws6.cell(info6 + 2, 1).font = BOLD_FONT
-ws6.cell(info6 + 2, 2).value = round(alpha3, 4)
+# ===========================================================================
+# Лист Табл.4: Начальные моменты и характеристики выборки
+# ===========================================================================
 
-ws6.cell(info6 + 3, 1).value = "α₄ = Σ(xᵢ⁴·wᵢ) ="
-ws6.cell(info6 + 3, 1).font = BOLD_FONT
-ws6.cell(info6 + 3, 2).value = round(alpha4, 2)
+ws_t4 = wb.create_sheet("Табл.4 - Начальные моменты")
 
-# ---------------------------------------------------------------------------
-# Лист 7: Характеристики выборки
-# ---------------------------------------------------------------------------
+# Заголовок
+ws_t4.merge_cells("A1:F1")
+cell = ws_t4["A1"]
+cell.value = "Табл.4. Вычисление начальных моментов"
+cell.font = HEADER_FONT
+cell.alignment = CENTER
+cell.fill = HEADER_FILL
 
-ws7 = wb.create_sheet("Характеристики выборки")
+# Шапка
+h(ws_t4["A2"], "xᵢ")
+h(ws_t4["B2"], "wᵢ = kᵢ/n")
+h(ws_t4["C2"], "xᵢ·wᵢ")
+h(ws_t4["D2"], "xᵢ²·wᵢ")
+h(ws_t4["E2"], "xᵢ³·wᵢ")
+h(ws_t4["F2"], "xᵢ⁴·wᵢ")
 
-ws7.merge_cells("A1:D1")
-c = ws7["A1"]
-c.value = "Характеристики выборки"
-c.font = Font(bold=True, size=14, name="Calibri")
-c.alignment = CENTER
+set_col_width(ws_t4, 1, 12)
+set_col_width(ws_t4, 2, 14)
+set_col_width(ws_t4, 3, 16)
+set_col_width(ws_t4, 4, 18)
+set_col_width(ws_t4, 5, 22)
+set_col_width(ws_t4, 6, 26)
 
-rows7 = [
-    ("Характеристика", "Формула", "Значение", ""),
-    ("Выборочное среднее x̄в = α₁",
-     "x̄в = Σ(xᵢ·wᵢ)",
-     round(x_mean, 6), ""),
-    ("Выборочная дисперсия Dв",
-     "Dв = α₂ − α₁²",
-     round(D_v, 6), ""),
-    ("Среднеквадр. откл. σв",
-     "σв = √Dв",
-     round(sigma_v, 6), ""),
-    ("", "", "", ""),
-    ("Центральный момент β₂ = Dв",
-     "β₂ = α₂ − α₁²",
-     round(beta2, 6), ""),
-    ("Центральный момент β₃",
-     "β₃ = α₃ − 3α₁α₂ + 2α₁³",
-     round(beta3, 6), ""),
-    ("Центральный момент β₄",
-     "β₄ = α₄ − 4α₁α₃ + 6α₁²α₂ − 3α₁⁴",
-     round(beta4, 6), ""),
-    ("", "", "", ""),
-    ("Асимметрия A",
-     "A = β₃ / σв³",
-     round(A, 6), ""),
-    ("Эксцесс E",
-     "E = β₄ / σв⁴ − 3",
-     round(E, 6), ""),
-]
+row = 3
+for x in unique_vals:
+    w = rel_freq[x]
+    d(ws_t4.cell(row, 1), x)
+    d(ws_t4.cell(row, 2), round(w, 6))
+    d(ws_t4.cell(row, 3), round(x * w, 6))
+    d(ws_t4.cell(row, 4), round(x**2 * w, 4))
+    d(ws_t4.cell(row, 5), round(x**3 * w, 2))
+    d(ws_t4.cell(row, 6), round(x**4 * w, 2))
+    row += 1
 
-set_col_width(ws7, 1, 42)
-set_col_width(ws7, 2, 34)
-set_col_width(ws7, 3, 16)
-set_col_width(ws7, 4, 10)
+# Строка Σ
+s(ws_t4.cell(row, 1), "Σ")
+s(ws_t4.cell(row, 2), 1)
+s(ws_t4.cell(row, 3), f"α₁ = {round(alpha1, 6)}")
+s(ws_t4.cell(row, 4), f"α₂ = {round(alpha2, 4)}")
+s(ws_t4.cell(row, 5), f"α₃ = {round(alpha3, 2)}")
+s(ws_t4.cell(row, 6), f"α₄ = {round(alpha4, 2)}")
 
-for i, row_data in enumerate(rows7):
-    row = i + 2
-    for col, val in enumerate(row_data, 1):
-        cell = ws7.cell(row, col)
-        cell.value = val
-        cell.border = cell_border()
-        if i == 0:
-            cell.font = HEADER_FONT
-            cell.fill = HEADER_FILL
-            cell.alignment = CENTER
-        elif val == "":
-            cell.fill = PatternFill("solid", fgColor="F2F2F2")
-        else:
-            cell.font = BOLD_FONT if col == 1 else NORMAL_FONT
-            cell.alignment = CENTER if col == 3 else LEFT
+# Значения моментов
+info_row = row + 2
+lbl(ws_t4.cell(info_row,     1), "Начальные моменты:", bold=True)
+lbl(ws_t4.cell(info_row + 1, 1), f"α₁ = {round(alpha1, 6)}", bold=True)
+lbl(ws_t4.cell(info_row + 2, 1), f"α₂ = {round(alpha2, 6)}", bold=True)
+lbl(ws_t4.cell(info_row + 3, 1), f"α₃ = {round(alpha3, 4)}", bold=True)
+lbl(ws_t4.cell(info_row + 4, 1), f"α₄ = {round(alpha4, 4)}", bold=True)
 
-# ---------------------------------------------------------------------------
-# Лист 8: Точечные оценки (п.7)
-# ---------------------------------------------------------------------------
+# Характеристики выборки
+chr_row = info_row + 6
+lbl(ws_t4.cell(chr_row, 1), "Характеристики выборки:", bold=True)
 
-ws8 = wb.create_sheet("Точечные оценки")
+ws_t4.cell(chr_row + 1, 1).value = "1) x̄в = α₁"
+ws_t4.cell(chr_row + 1, 1).font  = NORMAL_FONT
+ws_t4.cell(chr_row + 1, 2).value = f"x̄в = {round(x_mean, 6)}"
+ws_t4.cell(chr_row + 1, 2).font  = BOLD_FONT
 
-ws8.merge_cells("A1:D1")
-c = ws8["A1"]
-c.value = "Точечные оценки параметров (п.7)"
-c.font = Font(bold=True, size=14, name="Calibri")
-c.alignment = CENTER
+ws_t4.cell(chr_row + 2, 1).value = "2) Dв = α₂ − α₁²"
+ws_t4.cell(chr_row + 2, 1).font  = NORMAL_FONT
+ws_t4.cell(chr_row + 2, 2).value = f"Dв = {round(D_v, 6)}"
+ws_t4.cell(chr_row + 2, 2).font  = BOLD_FONT
 
-set_col_width(ws8, 1, 40)
-set_col_width(ws8, 2, 34)
-set_col_width(ws8, 3, 16)
-set_col_width(ws8, 4, 10)
+ws_t4.cell(chr_row + 3, 1).value = "3) σв = √Dв"
+ws_t4.cell(chr_row + 3, 1).font  = NORMAL_FONT
+ws_t4.cell(chr_row + 3, 2).value = f"σв = {round(sigma_v, 6)}"
+ws_t4.cell(chr_row + 3, 2).font  = BOLD_FONT
 
-rows8 = [
-    ("Параметр", "Формула", "Значение", ""),
-    ("--- 7.1 Метод статистических оценок ---", "", "", ""),
-    ("x̄г = x̄в",
-     "x̄г = x̄в = α₁",
-     round(x_mean, 6), ""),
-    ("Dг = S² (исправленная дисперсия)",
-     "S² = n/(n−1) · Dв",
-     round(S2, 6), ""),
-    ("σг = S (исправл. СКО)",
-     "S = √(n/(n−1)) · σв",
-     round(S, 6), ""),
-    ("--- 7.2 Метод моментов ---", "", "", ""),
-    ("x̄г = x̄в",
-     "α₁ = α₁' ⇒ x̄г = x̄в",
-     round(x_mean, 6), ""),
-    ("Dг = Dв",
-     "β₂ = β₂ ⇒ Dг = Dв",
-     round(D_v, 6), ""),
-    ("σг = σв",
-     "σг = σв",
-     round(sigma_v, 6), ""),
-]
+ws_t4.cell(chr_row + 4, 1).value = "4) A = β₃/σ³,  β₃ = α₃ − 3α₁α₂ + 2α₁³"
+ws_t4.cell(chr_row + 4, 1).font  = NORMAL_FONT
+ws_t4.cell(chr_row + 4, 2).value = f"β₃ = {round(beta3, 6)},  A = {round(A_val, 6)}"
+ws_t4.cell(chr_row + 4, 2).font  = BOLD_FONT
 
-for i, row_data in enumerate(rows8):
-    row = i + 2
-    for col, val in enumerate(row_data, 1):
-        cell = ws8.cell(row, col)
-        cell.value = val
-        cell.border = cell_border()
-        if i == 0:
-            cell.font = HEADER_FONT
-            cell.fill = HEADER_FILL
-            cell.alignment = CENTER
-        elif isinstance(val, str) and val.startswith("---"):
-            cell.font = BOLD_FONT
-            cell.fill = SUBHEADER_FILL
-            cell.alignment = LEFT
-            if col == 1:
-                ws8.merge_cells(f"A{row}:D{row}")
-                break
-        else:
-            cell.font = BOLD_FONT if col == 1 else NORMAL_FONT
-            cell.alignment = CENTER if col == 3 else LEFT
+ws_t4.cell(chr_row + 5, 1).value = "5) E = β₄/σ⁴ − 3,  β₄ = α₄ − 4α₁α₃ + 6α₁²α₂ − 3α₁⁴"
+ws_t4.cell(chr_row + 5, 1).font  = NORMAL_FONT
+ws_t4.cell(chr_row + 5, 2).value = f"β₄ = {round(beta4, 6)},  E = {round(E_val, 6)}"
+ws_t4.cell(chr_row + 5, 2).font  = BOLD_FONT
+
+set_col_width(ws_t4, 2, 32)
+
+
+# ===========================================================================
+# Лист 7: Точечные оценки
+# ===========================================================================
+
+ws7 = wb.create_sheet("7. Точечные оценки")
+
+set_col_width(ws7, 1, 46)
+set_col_width(ws7, 2, 28)
+
+ws7.merge_cells("A1:B1")
+cell = ws7["A1"]
+cell.value = "7. Вычисление точечных оценок"
+cell.font = HEADER_FONT
+cell.alignment = CENTER
+cell.fill = HEADER_FILL
+
+row = 3
+ws7.cell(row, 1).value = "7.1 Метод статистических оценок"
+ws7.cell(row, 1).font  = BOLD_FONT
+
+row += 1
+ws7.cell(row, 1).value = "x̄г = x̄в"
+ws7.cell(row, 1).font  = NORMAL_FONT
+ws7.cell(row, 2).value = f"x̄г = {round(x_mean, 6)}"
+ws7.cell(row, 2).font  = BOLD_FONT
+
+row += 1
+ws7.cell(row, 1).value = "S² = n/(n−1) · Dв"
+ws7.cell(row, 1).font  = NORMAL_FONT
+ws7.cell(row, 2).value = f"S² = {round(S2, 6)}"
+ws7.cell(row, 2).font  = BOLD_FONT
+
+row += 1
+ws7.cell(row, 1).value = "S = √(n/(n−1)) · σв"
+ws7.cell(row, 1).font  = NORMAL_FONT
+ws7.cell(row, 2).value = f"S = {round(S, 6)}"
+ws7.cell(row, 2).font  = BOLD_FONT
+
+row += 2
+ws7.cell(row, 1).value = "7.2 Метод моментов"
+ws7.cell(row, 1).font  = BOLD_FONT
+
+row += 1
+ws7.cell(row, 1).value = "α₁ = α₁' ⇒ x̄г = x̄в"
+ws7.cell(row, 1).font  = NORMAL_FONT
+ws7.cell(row, 2).value = f"x̄г = {round(x_mean, 6)}"
+ws7.cell(row, 2).font  = BOLD_FONT
+
+row += 1
+ws7.cell(row, 1).value = "β₂ = β₂ ⇒ Dг = Dв,  σг = σв"
+ws7.cell(row, 1).font  = NORMAL_FONT
+ws7.cell(row, 2).value = f"Dг = {round(D_v, 6)},  σг = {round(sigma_v, 6)}"
+ws7.cell(row, 2).font  = BOLD_FONT
+
+
+# ===========================================================================
+# Лист 8: Интервальные оценки
+# ===========================================================================
+
+ws8 = wb.create_sheet("8. Интервальные оценки")
+
+set_col_width(ws8, 1, 50)
+set_col_width(ws8, 2, 30)
+
+ws8.merge_cells("A1:B1")
+cell = ws8["A1"]
+cell.value = "8. Интервальные оценки при γ = 0.95"
+cell.font = HEADER_FONT
+cell.alignment = CENTER
+cell.fill = HEADER_FILL
+
+row = 3
+ws8.cell(row, 1).value = f"Уровень надёжности: γ = {gamma}"
+ws8.cell(row, 1).font  = NORMAL_FONT
+
+row += 2
+ws8.cell(row, 1).value = "8.1 Интервальная оценка среднего x̄г"
+ws8.cell(row, 1).font  = BOLD_FONT
+
+row += 1
+ws8.cell(row, 1).value = f"t = {t_val}  (при γ = {gamma})"
+ws8.cell(row, 1).font  = NORMAL_FONT
+
+row += 1
+ws8.cell(row, 1).value = "Δ = t · S / √n"
+ws8.cell(row, 1).font  = NORMAL_FONT
+ws8.cell(row, 2).value = f"Δ = {round(Delta, 6)}"
+ws8.cell(row, 2).font  = BOLD_FONT
+
+row += 1
+ws8.cell(row, 1).value = "x̄г − Δ < x̄ < x̄г + Δ"
+ws8.cell(row, 1).font  = NORMAL_FONT
+ws8.cell(row, 2).value = f"({round(x_low, 4)} ; {round(x_high, 4)})"
+ws8.cell(row, 2).font  = BOLD_FONT
+
+row += 2
+ws8.cell(row, 1).value = "8.2 Интервальная оценка среднеквадратичного отклонения σ"
+ws8.cell(row, 1).font  = BOLD_FONT
+
+row += 1
+ws8.cell(row, 1).value = f"q = {q_val}"
+ws8.cell(row, 1).font  = NORMAL_FONT
+
+row += 1
+ws8.cell(row, 1).value = "S(1 − q) < σ < S(1 + q)"
+ws8.cell(row, 1).font  = NORMAL_FONT
+ws8.cell(row, 2).value = f"({round(s_low, 4)} ; {round(s_high, 4)})"
+ws8.cell(row, 2).font  = BOLD_FONT
+
 
 # ---------------------------------------------------------------------------
-# Лист 9: Интервальные оценки (п.8)
+# Сохранение
 # ---------------------------------------------------------------------------
 
-ws9 = wb.create_sheet("Интервальные оценки")
-
-ws9.merge_cells("A1:D1")
-c = ws9["A1"]
-c.value = "Интервальные оценки (п.8), γ = 0.95"
-c.font = Font(bold=True, size=14, name="Calibri")
-c.alignment = CENTER
-
-set_col_width(ws9, 1, 44)
-set_col_width(ws9, 2, 34)
-set_col_width(ws9, 3, 20)
-set_col_width(ws9, 4, 10)
-
-rows9 = [
-    ("Параметр", "Формула / Пояснение", "Значение", ""),
-    ("--- 8.1 Дов. интервал для мат. ожидания ---", "", "", ""),
-    ("Уровень доверия γ", "", 0.95, ""),
-    ("t (квантиль при γ=0.95)", "Стандартное: t=1.96", 1.96, ""),
-    ("S (исправл. СКО)", "S = √(n/(n−1)·Dв)", round(S, 6), ""),
-    ("Δ = t·S/√n", f"Δ = {t}·{round(S,4)}/√{n}", round(delta, 6), ""),
-    (f"Нижн. граница: x̄г − Δ",
-     f"{round(x_mean,4)} − {round(delta,4)}",
-     round(mean_low, 6), ""),
-    (f"Верхн. граница: x̄г + Δ",
-     f"{round(x_mean,4)} + {round(delta,4)}",
-     round(mean_high, 6), ""),
-    ("Интервал для x̄г",
-     f"({round(mean_low,4)}; {round(mean_high,4)})",
-     "", ""),
-    ("--- 8.2 Дов. интервал для σ ---", "", "", ""),
-    ("q (для n=120, γ=0.95)", "q = 0.143", 0.143, ""),
-    ("Нижн. граница: S·(1−q)",
-     f"{round(S,4)}·(1−{q})",
-     round(sigma_low, 6), ""),
-    ("Верхн. граница: S·(1+q)",
-     f"{round(S,4)}·(1+{q})",
-     round(sigma_high, 6), ""),
-    ("Интервал для σг",
-     f"({round(sigma_low,4)}; {round(sigma_high,4)})",
-     "", ""),
-]
-
-for i, row_data in enumerate(rows9):
-    row = i + 2
-    for col, val in enumerate(row_data, 1):
-        cell = ws9.cell(row, col)
-        cell.value = val
-        cell.border = cell_border()
-        if i == 0:
-            cell.font = HEADER_FONT
-            cell.fill = HEADER_FILL
-            cell.alignment = CENTER
-        elif isinstance(val, str) and val.startswith("---"):
-            cell.font = BOLD_FONT
-            cell.fill = SUBHEADER_FILL
-            cell.alignment = LEFT
-            if col == 1:
-                ws9.merge_cells(f"A{row}:D{row}")
-                break
-        else:
-            cell.font = BOLD_FONT if col == 1 else NORMAL_FONT
-            cell.alignment = CENTER if col == 3 else LEFT
-
-# ---------------------------------------------------------------------------
-# Сохранение файла
-# ---------------------------------------------------------------------------
-
-output_file = "mathstat_rgr.xlsx"
-wb.save(output_file)
-print(f"✅ Файл '{output_file}' успешно создан!")
-print()
-print("=== Краткие результаты ===")
-print(f"n = {n},  Xmin = {x_min},  Xmax = {x_max},  R = {R}")
-print(f"h = {h}  (точное: {h_raw:.4f})")
-print(f"Мода Mo  = {Mo:.4f}")
-print(f"Медиана Me = {Me:.4f}")
-print(f"x̄в = α₁ = {alpha1:.6f}")
-print(f"Dв  = {D_v:.6f}")
-print(f"σв  = {sigma_v:.6f}")
-print(f"β₃  = {beta3:.6f}")
-print(f"β₄  = {beta4:.6f}")
-print(f"A (асимметрия) = {A:.6f}")
-print(f"E (эксцесс)    = {E:.6f}")
-print(f"S²  = {S2:.6f}")
-print(f"S   = {S:.6f}")
-print(f"Δ   = {delta:.6f}")
-print(f"ДИ для x̄: ({mean_low:.4f}; {mean_high:.4f})")
-print(f"ДИ для σ:  ({sigma_low:.4f}; {sigma_high:.4f})")
+wb.save("mathstat_rgr.xlsx")
+print("Файл mathstat_rgr.xlsx сохранён.")
+print(f"  n={n}, Xmin={x_min}, Xmax={x_max}, R={R}, h={h_val:.4f}")
+print(f"  Число интервалов: {num_intervals}")
+print(f"  Mo={Mo:.4f}, Me={Me:.4f}")
+print(f"  α₁={alpha1:.6f}, α₂={alpha2:.6f}, α₃={alpha3:.4f}, α₄={alpha4:.4f}")
+print(f"  x̄в={x_mean:.6f}, Dв={D_v:.6f}, σв={sigma_v:.6f}")
+print(f"  A={A_val:.6f}, E={E_val:.6f}")
+print(f"  S²={S2:.6f}, S={S:.6f}")
+print(f"  Δ={Delta:.6f}, x̄±Δ=({x_low:.4f}; {x_high:.4f})")
+print(f"  σ интервал: ({s_low:.4f}; {s_high:.4f})")
